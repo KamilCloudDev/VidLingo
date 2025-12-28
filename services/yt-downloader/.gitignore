@@ -1,0 +1,12 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# VidLingo
+*.mp4
+*.mkv
+*.webm
+*.vtt
+*.srt
