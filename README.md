@@ -26,6 +26,7 @@ The entire VidLingo suite is managed via Docker Compose, allowing for easy, modu
 
 4.  **Run the Translator (Module 3)**:
     Scans the `./downloads` folder for transcription files and translates them using the configured cloud AI. You can specify the target language using the `TARGET_LANGUAGE` environment variable.
+    **Note:** This module requires a `GEMINI_API_KEY` to be set in a `.env` file at the project root. See `.env.example` for format.
     ```bash
     docker-compose run --env TARGET_LANGUAGE=French translator
     # Or for Polish (default):
@@ -69,6 +70,7 @@ This project is built with a modular, service-oriented architecture. Each servic
 ### Module 3: Cloud AI Translator (`/services/translator`)
 -   **Status**: ✅ Complete
 -   **Description**: A cloud-native translation service using Google's Gemini API for dubbing-ready text. More details in its [local README](./services/translator/README.md).
+    **Configuration**: Requires a `GEMINI_API_KEY` in a `.env` file at the project root.
 
 ### Module 4: AI TTS Service (`/services/tts`)
 -   **Status**: ✅ Complete
