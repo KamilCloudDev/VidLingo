@@ -35,7 +35,7 @@ def regroup_words_into_segments(segments: Iterator[Dict[str, Any]]) -> List[Dict
         if not current_segment_words:
             current_segment_start_time = word.start
         
-        current_segment_words.append(word.word)
+        current_segment_words.append(word.word.strip())
         current_segment_end_time = word.end
         
         is_last_word = (i == len(all_words) - 1)
