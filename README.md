@@ -25,9 +25,11 @@ The entire VidLingo suite is managed via Docker Compose, allowing for easy, modu
     ```
 
 4.  **Run the Translator (Module 3)**:
-    Scans the `./downloads` folder for transcription files and translates them using the configured cloud AI.
+    Scans the `./downloads` folder for transcription files and translates them using the configured cloud AI. You can specify the target language using the `TARGET_LANGUAGE` environment variable.
     ```bash
-    docker-compose run translator
+    docker-compose run --env TARGET_LANGUAGE=French translator
+    # Or for Polish (default):
+    # docker-compose run translator
     ```
 
 ---
