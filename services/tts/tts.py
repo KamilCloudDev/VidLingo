@@ -6,6 +6,7 @@ import asyncio
 import edge_tts
 from pydub import AudioSegment, effects
 import subprocess
+import shutil
 
 # --- Konfiguracja ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -14,151 +15,129 @@ TEMP_DIR = "/app/temp/tts_outputs"
 TARGET_LANG = os.getenv("TARGET_LANGUAGE", "Polish")
 TARGET_BITRATE = "192k"
 TARGET_SAMPLE_RATE = 44100
-SUPPORTED_EXTENSIONS = ["*.mp4", "*.mkv", "*.webm", "*.mov", "*.avi", "*.flv"] # Dodane formaty
+SUPPORTED_EXTENSIONS = [".mp4", ".mkv", ".webm", ".mov", ".avi", ".flv"]
 
-# --- Logika Wyboru Głosu ---
-async def find_voice_for_language(lang: str) -> str:
-    """Znajduje odpowiedni męski głos 'Neural' dla danego języka."""
-    lang_prefix = lang.split('-')[0].lower()
-    voices = await edge_tts.list_voices()
-    
-    for voice in voices:
-        if voice['Gender'] == 'Male' and voice['Locale'].lower().startswith(lang_prefix) and 'Neural' in voice['Name']:
-            logging.info(f"Znaleziono głos '{voice['ShortName']}' dla języka '{lang}'.")
-            return voice['ShortName']
-    
-    for voice in voices:
-        if voice['Locale'].lower().startswith(lang_prefix):
-            logging.warning(f"Nie znaleziono męskiego głosu Neural. Używam '{voice['ShortName']}' jako fallback dla '{lang}'.")
-            return voice['ShortName']
-            
-    default_voice = 'en-US-ChristopherNeural'
-    logging.error(f"Nie znaleziono żadnego głosu dla języka '{lang}'. Używam domyślnego: {default_voice}")
-    return default_voice
+# LIMIT JEDNOCZESNYCH POŁĄCZEŃ (zapobiega blokadzie Rate Limit)
+MAX_CONCURRENT_REQUESTS = 3
+semaphore = asyncio.Semaphore(MAX_CONCURRENT_REQUESTS)
 
-async def get_voice_for_tts() -> str:
-    """Zwraca predefiniowany głos dla TARGET_LANGUAGE lub wyszukuje odpowiedni."""
+async def find_voice_for_language(lang_name: str) -> str:
     lang_map = {
-        "Polish": "pl-PL-MarekNeural",
-        "English": "en-US-ChristopherNeural"
+        "Polish": "pl", "English": "en", "German": "de", 
+        "Spanish": "es", "French": "fr", "Italian": "it"
     }
-    if TARGET_LANG in lang_map:
-        return lang_map[TARGET_LANG]
-    return await find_voice_for_language(TARGET_LANG)
+    lang_code = lang_map.get(lang_name, "en")
+    
+    voices = await edge_tts.list_voices()
+    for voice in voices:
+        if voice['Gender'] == 'Male' and voice['Locale'].lower().startswith(lang_code) and 'Neural' in voice['Name']:
+            logging.info(f"Wybrano głos: {voice['ShortName']}")
+            return voice['ShortName']
+    return "en-US-ChristopherNeural"
 
-async def generate_segment_audio(text: str, voice: str, output_path: str):
-    """Generuje pojedynczy segment audio .mp3."""
-    try:
-        communicate = edge_tts.Communicate(text, voice)
-        await communicate.save(output_path)
-        logging.info(f"Zapisano segment: {os.path.basename(output_path)}")
-    except Exception as e:
-        logging.error(f"Błąd podczas generowania segmentu dla tekstu '{text[:30]}...': {e}")
+async def generate_segment_audio(text: str, voice: str, output_path: str, retries=5):
+    """Generuje audio z semaforem, walidacją rozmiaru i powtórkami."""
+    if not text.strip() or text.strip() in [".", "..", "..."]:
+        # Tworzy sekundę ciszy dla samych kropek/pustych tekstów
+        AudioSegment.silent(duration=1000).export(output_path, format="mp3")
+        return
+
+    async with semaphore:
+        for attempt in range(retries):
+            try:
+                communicate = edge_tts.Communicate(text, voice)
+                await communicate.save(output_path)
+                
+                # Walidacja: plik musi istnieć i mieć sensowny rozmiar
+                if os.path.exists(output_path) and os.path.getsize(output_path) > 100:
+                    return # Sukces
+                
+                logging.warning(f"Pusty plik (próba {attempt+1}/{retries}) dla: {text[:15]}...")
+            except Exception as e:
+                logging.error(f"Błąd (próba {attempt+1}/{retries}) dla: {text[:15]}... -> {e}")
+            
+            await asyncio.sleep(2 * (attempt + 1)) # Coraz dłuższy czas oczekiwania
+
+        # Jeśli po wszystkich próbach zawiedzie - stwórz ciszę zamiast błędu
+        logging.error(f"Ostateczna porażka TTS dla: {text[:20]}. Generowanie ciszy.")
+        AudioSegment.silent(duration=1000).export(output_path, format="mp3")
 
 def build_dub_track(generated_files, total_duration_ms):
-    """Składa finalną ścieżkę dubbingu z wygenerowanych segmentów."""
-    logging.info("Budowanie finalnej ścieżki dubbingu na osi czasu...")
+    logging.info(f"Składanie ścieżki: {len(generated_files)} segmentów.")
     final_track = AudioSegment.silent(duration=total_duration_ms, frame_rate=TARGET_SAMPLE_RATE)
-
-    for clip_info in generated_files:
-        try:
-            segment_audio = AudioSegment.from_mp3(clip_info["audio_path"])
-            segment_audio = segment_audio.set_frame_rate(TARGET_SAMPLE_RATE)
-            segment_audio = effects.normalize(segment_audio)
-            
-            final_track = final_track.overlay(segment_audio, position=clip_info["start"] * 1000)
-        except Exception as e:
-            logging.error(f"Nie udało się przetworzyć klipu {clip_info['audio_path']}: {e}")
-            
+    
+    for i, clip in enumerate(generated_files):
+        if i % 50 == 0: logging.info(f"Montaż: {i}/{len(generated_files)}")
+        
+        path = clip["audio_path"]
+        if os.path.exists(path) and os.path.getsize(path) > 0:
+            try:
+                seg = AudioSegment.from_mp3(path).set_frame_rate(TARGET_SAMPLE_RATE)
+                seg = effects.normalize(seg)
+                final_track = final_track.overlay(seg, position=int(clip["start"] * 1000))
+            except Exception as e:
+                logging.error(f"Nie można wczytać klipu {path}: {e}")
+                
     return final_track
 
-def mix_and_remux_video(video_path, dub_track, output_filename="DUBBED_VIDEO_FINAL.mp4"):
-    """Implementuje "ducking" audio i miksuje finalną ścieżkę z wideo."""
-    logging.info("Rozpoczynanie finalnego miksowania z duckingiem...")
-    dub_track_path = os.path.join(TEMP_DIR, "dubbed_track.mp3")
-    final_output_path = os.path.join(DOWNLOADS_DIR, output_filename)
-    
-    dub_track.export(dub_track_path, format="mp3", codec="libmp3lame", bitrate=TARGET_BITRATE)
-
-    command = [
-        'ffmpeg', '-y', '-i', video_path, '-i', dub_track_path,
-        '-filter_complex', "[0:a]volume=0.1[bg];[bg][1:a]amix=inputs=2:duration=first[a_out]",
-        '-map', '0:v:0', '-map', '[a_out]',
-        '-c:v', 'copy', '-c:a', 'aac', '-shortest', final_output_path
-    ]
-    try:
-        subprocess.run(command, check=True, capture_output=True, text=True)
-        logging.info(f"Finalne wideo z dubbingiem zapisano pomyślnie jako {output_filename}")
-    except subprocess.CalledProcessError as e:
-        logging.error(f"Błąd FFmpeg podczas remiksowania: {e.stderr}")
-
 async def main():
-    if not os.path.exists(TEMP_DIR): os.makedirs(TEMP_DIR)
+    if not os.path.exists(TEMP_DIR): os.makedirs(TEMP_DIR, exist_ok=True)
     
     json_files = glob.glob(os.path.join(DOWNLOADS_DIR, "*_translated.json"))
-    
-    # Skanowanie wielu formatów wideo
-    video_files = []
-    for ext in SUPPORTED_EXTENSIONS:
-        video_files.extend(glob.glob(os.path.join(DOWNLOADS_DIR, ext)))
-
-    unprocessed_videos = [v for v in video_files if "DUBBED" not in v]
-    if not unprocessed_videos or not json_files:
-        logging.warning("Nie znaleziono pasujących plików wideo i/lub tłumaczenia (*_translated.json).")
+    if not json_files:
+        logging.error("Brak plików *_translated.json")
         return
-        
-    video_path = unprocessed_videos[0]
-    json_path = json_files[0]
-    logging.info(f"Znaleziono wideo: {os.path.basename(video_path)} i tłumaczenie: {os.path.basename(json_path)}")
-    
-    with open(json_path, 'r', encoding='utf-8') as f:
-        segments = json.load(f)
 
-    voice = await get_voice_for_tts()
-    
-    tasks = []
-    generated_files_metadata = []
-    for i, segment in enumerate(segments):
-        text = segment.get('text', '').strip()
-        if not text: continue
+    for json_path in json_files:
+        base_name = os.path.basename(json_path).replace('_translated.json', '')
+        video_path = next((os.path.join(DOWNLOADS_DIR, base_name + ext) 
+                          for ext in SUPPORTED_EXTENSIONS 
+                          if os.path.exists(os.path.join(DOWNLOADS_DIR, base_name + ext))), None)
         
-        output_path = os.path.join(TEMP_DIR, f"segment_{i+1}.mp3")
-        
-        if os.path.exists(output_path):
-            logging.info(f"Segment {i+1} audio już istnieje. Pomijanie generowania.")
-        else:
-            tasks.append(generate_segment_audio(text, voice, output_path))
+        if not video_path:
+            logging.error(f"Pominięto: brak wideo dla {base_name}")
+            continue
 
-        generated_files_metadata.append({"audio_path": output_path, "start": segment.get('start'), "end": segment.get('end')})
+        logging.info(f"START PROCESU: {os.path.basename(video_path)}")
+        with open(json_path, 'r', encoding='utf-8') as f:
+            segments = json.load(f)
 
-    logging.info(f"Rozpoczynanie generowania {len(tasks)} segmentów audio z Microsoft Edge TTS...")
-    if tasks:
+        voice = await find_voice_for_language(TARGET_LANG)
+        tasks = []
+        metadata = []
+
+        for i, seg in enumerate(segments):
+            txt = seg.get('text', '').strip()
+            out_p = os.path.join(TEMP_DIR, f"seg_{i}.mp3")
+            metadata.append({"audio_path": out_p, "start": seg.get('start', 0)})
+            tasks.append(generate_segment_audio(txt, voice, out_p))
+
+        # Uruchamiamy zadania (semafor wewnątrz zadba o kolejkowanie)
         await asyncio.gather(*tasks)
-    else:
-        logging.info("Wszystkie segmenty audio już istniały. Pomijam generowanie.")
-    logging.info("Generowanie audio zakończone.")
 
-    try:
-        result = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', video_path], capture_output=True, text=True, check=True)
-        total_duration_s = float(result.stdout.strip())
-        total_duration_ms = int(total_duration_s * 1000)
-    except Exception as e:
-        logging.error(f"Nie udało się pobrać czasu trwania wideo: {e}")
-        return
+        # Pobranie czasu trwania
+        res = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', video_path], capture_output=True, text=True)
+        dur_ms = int(float(res.stdout.strip()) * 1000)
+        
+        dub_track = build_dub_track(metadata, dur_ms)
+        
+        # Export
+        output_name = base_name + "_FINAL_DUB.mp4"
+        dub_track_tmp = os.path.join(TEMP_DIR, "temp_dub.mp3")
+        dub_track.export(dub_track_tmp, format="mp3", bitrate=TARGET_BITRATE)
+        
+        final_cmd = [
+            'ffmpeg', '-y', '-i', video_path, '-i', dub_track_tmp,
+            '-filter_complex', "[0:a]volume=0.30[bg];[bg][1:a]amix=inputs=2:duration=first:dropout_transition=0[a_out]",
+            '-map', '0:v:0', '-map', '[a_out]', '-c:v', 'copy', '-c:a', 'aac', '-preset', 'superfast',
+            os.path.join(DOWNLOADS_DIR, output_name)
+        ]
+        
+        logging.info(f"Renderowanie finalnego pliku: {output_name}")
+        subprocess.run(final_cmd)
+        logging.info(f"SUKCES: {output_name}")
 
-    dub_track = build_dub_track(generated_files_metadata, total_duration_ms)
-    
-    if dub_track:
-        mix_and_remux_video(video_path, dub_track)
-    
-    logging.info("Sprzątanie plików tymczasowych...")
-    for f in glob.glob(os.path.join(TEMP_DIR, "*")): os.remove(f)
-    os.rmdir(TEMP_DIR)
-    
-    logging.info("Cały proces dubbingu zakończony!")
+    # shutil.rmtree(TEMP_DIR) # Odkomentuj, jeśli chcesz czyścić po sobie
 
 if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except Exception as e:
-        logging.critical(f"Wystąpił krytyczny błąd w głównym wykonaniu: {e}")
+    asyncio.run(main())

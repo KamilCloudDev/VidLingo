@@ -5,16 +5,15 @@ import logging
 import re
 from faster_whisper import WhisperModel
 from typing import Iterator, List, Dict, Any
+import torch
 
 # --- Konfiguracja ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 DOWNLOADS_DIR = os.getenv("DOWNLOADS_DIR", "/app/downloads")
 MODEL_SIZE = "base"
-DEVICE = "cpu"
-COMPUTE_TYPE = "int8"
 MAX_SEGMENT_DURATION_S = 6.0
 SILENCE_THRESHOLD_S = 0.75
-SUPPORTED_EXTENSIONS = ["*.mp4", "*.mkv", "*.webm", "*.mov", "*.avi", "*.flv"] # Dodane formaty
+SUPPORTED_EXTENSIONS = ["*.mp4", "*.mkv", "*.webm", "*.mov", "*.avi", "*.flv"]
 
 def regroup_words_into_segments(segments: Iterator[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
@@ -68,9 +67,19 @@ def transcribe_videos():
     Skanuje folder w poszukiwaniu plików wideo, transkrybuje je z precyzyjną segmentacją
     i zapisuje wyniki jako pliki JSON.
     """
-    logging.info(f"Ładowanie modelu faster-whisper '{MODEL_SIZE}' dla {DEVICE}...")
+    logging.info("Sprawdzam dostępność GPU dla faster-whisper...")
+    if torch.cuda.is_available():
+        device_type = "cuda"
+        compute_type = "float16" # Szybsze na GPU, jeśli model jest kompatybilny
+        logging.info(f"Wykryto GPU. Używam '{device_type}' z '{compute_type}'.")
+    else:
+        device_type = "cpu"
+        compute_type = "int8" # Optymalizacja dla CPU
+        logging.warning(f"Brak wykrytego GPU. Używam '{device_type}' z '{compute_type}'.")
+
+    logging.info(f"Ładowanie modelu faster-whisper '{MODEL_SIZE}' dla {device_type}...")
     try:
-        model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE)
+        model = WhisperModel(MODEL_SIZE, device=device_type, compute_type=compute_type)
     except Exception as e:
         logging.error(f"Nie udało się załadować modelu Whisper: {e}")
         return
