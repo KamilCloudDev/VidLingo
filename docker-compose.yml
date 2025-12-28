@@ -38,3 +38,11 @@ services:
     volumes:
       - ./tests/transcriber:/app/tests/transcriber
     command: python -m unittest /app/tests/transcriber/test_transcriber.py
+
+  tts-tests:
+    build:
+      context: ./services/tts
+    volumes:
+      - ./tests/tts:/app/tests/tts
+      - ./temp:/app/temp
+    command: python -m unittest /app/tests/tts/test_tts.py
