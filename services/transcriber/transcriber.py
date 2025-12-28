@@ -49,7 +49,7 @@ def regroup_words_into_segments(segments: Iterator[Dict[str, Any]]) -> List[Dict
                 long_silence_after = True
 
         if is_last_word or ends_with_punctuation or duration_exceeded or long_silence_after:
-            text = " ".join(current_segment_words).strip()
+            text = " ".join(current_segment_words).split(" ").join(" ")
             if text:
                 new_segment = {
                     "start": round(current_segment_start_time, 3),
