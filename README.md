@@ -1,5 +1,7 @@
 # VidLingo - AI-Powered Video Translation & Dubbing
 
+![VidLingo Banner](banner.png)
+
 Welcome to the VidLingo project! This platform is designed to automate the process of video translation and dubbing using a modular, AI-powered pipeline.
 
 ## 🚀 How to Run the Suite
