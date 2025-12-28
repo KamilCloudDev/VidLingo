@@ -1,2 +1,0 @@
-https://www.youtube.com/watch?v=1j0X9QMF--M
-docker run --rm -v "c:\VidLingo\downloads:/app/downloads" yt-downloader "https://www.youtube.com/watch?v=1j0X9QMF--M"
