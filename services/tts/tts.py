@@ -14,6 +14,7 @@ TEMP_DIR = "/app/temp/tts_outputs"
 TARGET_LANG = os.getenv("TARGET_LANGUAGE", "Polish")
 TARGET_BITRATE = "192k"
 TARGET_SAMPLE_RATE = 44100
+SUPPORTED_EXTENSIONS = ["*.mp4", "*.mkv", "*.webm", "*.mov", "*.avi", "*.flv"] # Dodane formaty
 
 # --- Logika Wyboru Głosu ---
 async def find_voice_for_language(lang: str) -> str:
@@ -21,45 +22,28 @@ async def find_voice_for_language(lang: str) -> str:
     lang_prefix = lang.split('-')[0].lower()
     voices = await edge_tts.list_voices()
     
-    # Preferuj męski głos neural
     for voice in voices:
         if voice['Gender'] == 'Male' and voice['Locale'].lower().startswith(lang_prefix) and 'Neural' in voice['Name']:
             logging.info(f"Znaleziono głos '{voice['ShortName']}' dla języka '{lang}'.")
             return voice['ShortName']
     
-    # Fallback na jakikolwiek głos dla danego języka
     for voice in voices:
         if voice['Locale'].lower().startswith(lang_prefix):
             logging.warning(f"Nie znaleziono męskiego głosu Neural. Używam '{voice['ShortName']}' jako fallback dla '{lang}'.")
             return voice['ShortName']
             
-    # Ostateczny fallback na domyślny głos angielski
     default_voice = 'en-US-ChristopherNeural'
     logging.error(f"Nie znaleziono żadnego głosu dla języka '{lang}'. Używam domyślnego: {default_voice}")
     return default_voice
 
 async def get_voice_for_tts() -> str:
     """Zwraca predefiniowany głos dla TARGET_LANGUAGE lub wyszukuje odpowiedni."""
-    # Priorytet dla konkretnych głosów
-    if TARGET_LANG == "Polish":
-        # Sprawdzamy dostępność Marka, jeśli nie ma, używamy Zofii
-        voices = await edge_tts.list_voices()
-        for v in voices:
-            if v['ShortName'] == 'pl-PL-MarekNeural':
-                logging.info("Używam głosu pl-PL-MarekNeural.")
-                return 'pl-PL-MarekNeural'
-        logging.warning("Głos 'pl-PL-MarekNeural' nie jest dostępny. Szukam alternatywnego głosu polskiego.")
-        for v in voices:
-            if v['Locale'] == 'pl-PL' and 'Neural' in v['Name']:
-                 logging.info(f"Używam głosu {v['ShortName']} jako alternatywy dla polskiego.")
-                 return v['ShortName']
-        logging.error("Nie znaleziono żadnego polskiego głosu. Używam fallbacku.")
-        return await find_voice_for_language(TARGET_LANG) # Fallback ogólny
-        
-    elif TARGET_LANG == "English":
-        return "en-US-ChristopherNeural"
-    
-    # Dla innych języków szukaj
+    lang_map = {
+        "Polish": "pl-PL-MarekNeural",
+        "English": "en-US-ChristopherNeural"
+    }
+    if TARGET_LANG in lang_map:
+        return lang_map[TARGET_LANG]
     return await find_voice_for_language(TARGET_LANG)
 
 async def generate_segment_audio(text: str, voice: str, output_path: str):
@@ -80,7 +64,7 @@ def build_dub_track(generated_files, total_duration_ms):
         try:
             segment_audio = AudioSegment.from_mp3(clip_info["audio_path"])
             segment_audio = segment_audio.set_frame_rate(TARGET_SAMPLE_RATE)
-            segment_audio = effects.normalize(segment_audio) # Dodano normalizację
+            segment_audio = effects.normalize(segment_audio)
             
             final_track = final_track.overlay(segment_audio, position=clip_info["start"] * 1000)
         except Exception as e:
@@ -112,7 +96,11 @@ async def main():
     if not os.path.exists(TEMP_DIR): os.makedirs(TEMP_DIR)
     
     json_files = glob.glob(os.path.join(DOWNLOADS_DIR, "*_translated.json"))
-    video_files = glob.glob(os.path.join(DOWNLOADS_DIR, "*.mp4"))
+    
+    # Skanowanie wielu formatów wideo
+    video_files = []
+    for ext in SUPPORTED_EXTENSIONS:
+        video_files.extend(glob.glob(os.path.join(DOWNLOADS_DIR, ext)))
 
     unprocessed_videos = [v for v in video_files if "DUBBED" not in v]
     if not unprocessed_videos or not json_files:
@@ -136,7 +124,6 @@ async def main():
         
         output_path = os.path.join(TEMP_DIR, f"segment_{i+1}.mp3")
         
-        # Logika wznawiania: jeśli plik już istnieje, pomijamy generowanie audio
         if os.path.exists(output_path):
             logging.info(f"Segment {i+1} audio już istnieje. Pomijanie generowania.")
         else:
@@ -145,13 +132,12 @@ async def main():
         generated_files_metadata.append({"audio_path": output_path, "start": segment.get('start'), "end": segment.get('end')})
 
     logging.info(f"Rozpoczynanie generowania {len(tasks)} segmentów audio z Microsoft Edge TTS...")
-    if tasks: # Uruchamiaj tylko, jeśli są zadania do wykonania
+    if tasks:
         await asyncio.gather(*tasks)
     else:
         logging.info("Wszystkie segmenty audio już istniały. Pomijam generowanie.")
     logging.info("Generowanie audio zakończone.")
 
-    # Oblicz całkowity czas trwania
     try:
         result = subprocess.run(['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', video_path], capture_output=True, text=True, check=True)
         total_duration_s = float(result.stdout.strip())

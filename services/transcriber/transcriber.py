@@ -12,8 +12,9 @@ DOWNLOADS_DIR = os.getenv("DOWNLOADS_DIR", "/app/downloads")
 MODEL_SIZE = "base"
 DEVICE = "cpu"
 COMPUTE_TYPE = "int8"
-MAX_SEGMENT_DURATION_S = 6.0  # Dążymy do segmentów o długości 5-7 sekund
-SILENCE_THRESHOLD_S = 0.75   # Przerwa w mowie, która wymusza nowy segment
+MAX_SEGMENT_DURATION_S = 6.0
+SILENCE_THRESHOLD_S = 0.75
+SUPPORTED_EXTENSIONS = ["*.mp4", "*.mkv", "*.webm", "*.mov", "*.avi", "*.flv"] # Dodane formaty
 
 def regroup_words_into_segments(segments: Iterator[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
@@ -24,30 +25,24 @@ def regroup_words_into_segments(segments: Iterator[Dict[str, Any]]) -> List[Dict
     final_segments = []
     current_segment_words = []
     
-    # Flatten all words from all segments into a single list
     all_words = [word for segment in segments for word in segment.words]
     if not all_words:
         return []
 
     for i, word in enumerate(all_words):
-        # --- Filtracja segmentów bez mowy (np. [Laughter]) ---
-        # Sprawdzamy, czy słowo jest w nawiasach i pomijamy je
         if word.word.strip().startswith('[') and word.word.strip().endswith(']'):
             continue
 
         if not current_segment_words:
-            # Rozpocznij nowy segment
             current_segment_start_time = word.start
         
         current_segment_words.append(word.word)
         current_segment_end_time = word.end
         
-        # Sprawdź, czy należy zakończyć bieżący segment
         is_last_word = (i == len(all_words) - 1)
         ends_with_punctuation = word.word.strip().endswith(('.', '?', '!'))
         duration_exceeded = (current_segment_end_time - current_segment_start_time) > MAX_SEGMENT_DURATION_S
         
-        # Sprawdź, czy po bieżącym słowie następuje długa pauza
         long_silence_after = False
         if not is_last_word:
             next_word_start = all_words[i+1].start
@@ -64,7 +59,6 @@ def regroup_words_into_segments(segments: Iterator[Dict[str, Any]]) -> List[Dict
                 }
                 final_segments.append(new_segment)
             
-            # Zresetuj dla następnego segmentu
             current_segment_words = []
 
     return final_segments
@@ -82,9 +76,13 @@ def transcribe_videos():
         return
     logging.info("Model załadowany pomyślnie.")
     
-    video_files = glob.glob(os.path.join(DOWNLOADS_DIR, "*.mp4"))
+    # Skanowanie wielu formatów wideo
+    video_files = []
+    for ext in SUPPORTED_EXTENSIONS:
+        video_files.extend(glob.glob(os.path.join(DOWNLOADS_DIR, ext)))
+
     if not video_files:
-        logging.warning(f"Nie znaleziono plików wideo .mp4 w '{DOWNLOADS_DIR}'. Zakończono.")
+        logging.warning(f"Nie znaleziono plików wideo w '{DOWNLOADS_DIR}'. Zakończono.")
         return
 
     logging.info(f"Znaleziono {len(video_files)} wideo do transkrypcji.")
@@ -100,15 +98,12 @@ def transcribe_videos():
 
             logging.info(f"Rozpoczynanie transkrypcji dla: {os.path.basename(video_path)}")
             
-            # --- Kluczowy krok: włączenie word_timestamps=True ---
             segments_iterator, info = model.transcribe(video_path, word_timestamps=True)
             
             logging.info(f"Wykryty język: '{info.language}' (prawdopodobieństwo: {info.language_probability:.2f})")
 
-            # Przetwarzanie i grupowanie słów w precyzyjne segmenty
             precise_segments = regroup_words_into_segments(segments_iterator)
 
-            # Zapisz wynik do pliku JSON
             with open(json_output_path, 'w', encoding='utf-8') as f:
                 json.dump(precise_segments, f, indent=4, ensure_ascii=False)
 
