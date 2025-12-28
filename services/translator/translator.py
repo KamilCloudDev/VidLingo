@@ -96,7 +96,7 @@ def translate_json_files():
         logging.error("Klient Gemini nie jest dostępny. Zakończono działanie.")
         return
 
-    files_to_translate = [f for f in glob.glob(os.path.join(DOWNLOADS_DIR, "*.json")) if not f.endswith('_PL.json')] 
+    files_to_translate = [f for f in glob.glob(os.path.join(DOWNLOADS_DIR, "*.json")) if not f.endswith('_translated.json')] 
     
     if not files_to_translate:
         logging.warning(f"Nie znaleziono plików JSON do tłumaczenia w '{DOWNLOADS_DIR}'.")
@@ -120,7 +120,7 @@ def translate_json_files():
             cleaned_json_str = clean_and_extract_json(response.text)
             translated_data = json.loads(cleaned_json_str)
 
-            output_path = file_path.replace(".json", "_PL.json")
+            output_path = file_path.replace(".json", "_translated.json")
 
             with open(output_path, 'w', encoding='utf-8') as f:
                 json.dump(translated_data, f, indent=4, ensure_ascii=False)

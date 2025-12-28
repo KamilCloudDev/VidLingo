@@ -38,6 +38,20 @@ The entire VidLingo suite is managed via Docker Compose, allowing for easy, modu
     docker-compose run tts
     ```
 
+### 📁 Local File Workflow
+
+If you want to process a local video file (instead of downloading from YouTube):
+
+1.  **Place your video file** (e.g., `my_local_video.mp4`) directly into the `C:\VidLingo\downloads` folder on your host machine.
+2.  **Skip the `yt-downloader` step.**
+3.  **Start the pipeline from the `transcriber` service:**
+    ```bash
+    docker-compose run transcriber
+    docker-compose run translator
+    docker-compose run tts
+    ```
+    The `transcriber` will automatically find your local video file in the `downloads` folder and initiate the rest of the dubbing process.
+
 ---
 
 ## 📦 Modules
