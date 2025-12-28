@@ -29,22 +29,22 @@ def regroup_words_into_segments(segments: Iterator[Dict[str, Any]]) -> List[Dict
         return []
 
     for i, word in enumerate(all_words):
-        if word['word'].strip().startswith('[') and word['word'].strip().endswith(']'):
+        if word.word.strip().startswith('[') and word.word.strip().endswith(']'):
             continue
 
         if not current_segment_words:
-            current_segment_start_time = word['start']
+            current_segment_start_time = word.start
         
-        current_segment_words.append(word['word'])
-        current_segment_end_time = word['end']
+        current_segment_words.append(word.word)
+        current_segment_end_time = word.end
         
         is_last_word = (i == len(all_words) - 1)
-        ends_with_punctuation = word['word'].strip().endswith(('.', '?', '!'))
+        ends_with_punctuation = word.word.strip().endswith(('.', '?', '!'))
         duration_exceeded = (current_segment_end_time - current_segment_start_time) > MAX_SEGMENT_DURATION_S
         
         long_silence_after = False
         if not is_last_word:
-            next_word_start = all_words[i+1]['start']
+            next_word_start = all_words[i+1].start
             if (next_word_start - current_segment_end_time) > SILENCE_THRESHOLD_S:
                 long_silence_after = True
 

@@ -7,10 +7,18 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 
 from transcriber import regroup_words_into_segments
 
+# Klasa MockWord do emulacji zachowania słowa z faster-whisper
+class MockWord:
+    def __init__(self, word, start, end, probability):
+        self.word = word
+        self.start = start
+        self.end = end
+        self.probability = probability
+
 # Klasa MockSegment do emulacji zachowania segmentu z faster-whisper
 class MockSegment:
-    def __init__(self, words):
-        self.words = words
+    def __init__(self, words_data):
+        self.words = [MockWord(**data) for data in words_data]
 
 class TestTranscriberFunctions(unittest.TestCase):
 
