@@ -4,13 +4,19 @@ services:
       context: ./services/yt-downloader
     volumes:
       - ./downloads:/app/downloads
-    # This service is intended for one-off runs, e.g.:
-    # docker-compose run yt-downloader "YOUTUBE_URL_HERE"
 
   transcriber:
     build:
       context: ./services/transcriber
+    environment:
+      - PYTHONUNBUFFERED=1
     volumes:
       - ./downloads:/app/downloads
-    # This service processes files present in the volume, e.g.:
-    # docker-compose run transcriber
+
+  translator:
+    build:
+      context: ./services/translator
+    env_file:
+      - .env
+    volumes:
+      - ./downloads:/app/downloads
