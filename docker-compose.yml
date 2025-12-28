@@ -24,24 +24,11 @@ services:
   dubber:
     build:
       context: ./services/dubber
-    # Jeśli masz kartę NVIDIA, możesz użyć obrazu GPU, ale wtedy musisz również
-    # skonfigurować Docker do obsługi GPU (np. Docker Desktop z WSL2 + CUDA)
-    # image: ghcr.io/coqui-ai/tts:latest-gpu # Uncomment if using GPU base image in Dockerfile
     environment:
       - PYTHONUNBUFFERED=1
-      - COQUI_TOS_AGREED=1 # Akceptacja warunków Coqui TTS
-      # Jeśli używasz GPU, to dodaj to (np. dla Docker Desktop z WSL2)
-      # - CUDA_VISIBLE_DEVICES=0
+      - COQUI_TOS_AGREED=1
     volumes:
       - ./downloads:/app/downloads
-      # /dev/shm jest często wymagane dla procesów audio/wideo w Dockerze,
-      # aby zapobiec błędom braku pamięci współdzielonej
       - /dev/shm:/dev/shm
-    # Jeśli używasz GPU i Dockera obsługującego deploy
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: 1
-    #           capabilities: [gpu]
+      - ./tts_models:/root/.local/share/tts
+    entrypoint: ["python3", "/app/dubber.py"]

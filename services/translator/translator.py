@@ -8,48 +8,72 @@ from google import genai
 # --- Konfiguracja ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 DOWNLOADS_DIR = os.getenv("DOWNLOADS_DIR", "/app/downloads")
-MODEL_ID = 'gemini-2.5-flash' # Zmieniono model na gemini-2.5-flash zgodnie z instrukcją
-TARGET_LANG = os.getenv("TARGET_LANGUAGE", "Polish") # Dynamiczny język docelowy
-
-def list_available_models():
-    """Listuje wszystkie dostępne modele Gemini dla danego klucza API."""
-    try:
-        logging.info("--- Dostępne Modele Gemini ---")
-        for m in genai.list_models():
-            # Sprawdzamy, czy model wspiera metodę 'generateContent'
-            if 'generateContent' in m.supported_generation_methods:
-                logging.info(f"Model: {m.name}")
-        logging.info("---------------------------------")
-    except Exception as e:
-        logging.error(f"Nie udało się pobrać listy modeli: {e}")
+MODEL_ID = 'gemini-2.5-flash'
+TARGET_LANG = os.getenv("TARGET_LANGUAGE", "Polish")
 
 # --- Konfiguracja Klienta Google Gemini ---
 try:
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        raise ValueError("Krytyczny błąd: Klucz API GEMINI_API_KEY nie został znaleziony w .env.")
+        raise ValueError("Krytyczny błąd: Klucz API GEMINI_API_KEY nie został znaleziony w pliku .env.")
     
     client = genai.Client(api_key=api_key)
-    
     logging.info(f"Pomyślnie skonfigurowano klienta Google Gemini. Model: '{MODEL_ID}'. Język docelowy: {TARGET_LANG}")
 
 except Exception as e:
     logging.critical(f"Krytyczny błąd podczas konfiguracji klienta Gemini: {e}")
     client = None
 
-# --- Instrukcja Systemowa (zorientowana na dubbing) ---
-SYSTEM_INSTRUCTION = f"""You are a professional dubbing adapter. Translate the English subtitles to {TARGET_LANG}.
+# --- Uniwersalna Instrukcja Systemowa dla Izosynchronicznego Dubbingu ---
+SYSTEM_INSTRUCTION = f"""
+Role: Act as a Senior Global Localization Lead and Audiovisual Scriptwriter. You specialize in adapting video content for international dubbing, ensuring perfect lip-sync, cultural relevance, and technical compatibility with TTS (Text-to-Speech) engines.
 
-CRUCIAL RULES:
-1.  **Isochrony:** The spoken duration in {TARGET_LANG} must match the original timestamps. Your translation should aim for a similar length and syllable count to the original to facilitate voice-over synchronization.
-2.  **Easy Pronunciation:** The text must be natural and easy for a voice-over actor to speak. Avoid awkward phrasing or overly complex words.
-3.  **Capture Meaning, Not Words:** Do not translate literally. Rephrase sentences to make them sound natural and powerful in {TARGET_LANG}.
-4.  **Output Format:** Return ONLY a raw JSON array. Do not include any markdown, explanations, or additional text outside the JSON array.
-"""
+Target Language: [INSERT TARGET LANGUAGE HERE, e.g., Polish, English, Spanish]
 
-def clean_json(response_text: str) -> str:
+Instructions: You will receive a JSON file with "start", "end", and "text" keys. You must transform this content into a professional dubbing script.
+
+1. Holistic Context & Cultural Adaptation
+Full-Script Review: Analyze the entire JSON before translating. Detect the source language, tone, and narrative arc.
+
+Pun & Joke Preservation: Identify setups and punchlines (e.g., jokes about balloons/inflation). Adapt them so the humor works naturally in the Target Language. Never leave punchlines blank.
+
+Narrative Continuity: Maintain consistent terminology and forms of address (formal/informal) across all segments.
+
+2. Strict Text Normalization for TTS (Phonetic Precision)
+NO DIGITS: You MUST verbalize every number, year, and date into full-word phonetic equivalents in the Target Language.
+
+Example (EN->PL): "2009" -> "dwutysięczny dziewiąty".
+
+Example (PL->EN): "2009" -> "two thousand and nine".
+
+Symbols & Units: Convert all symbols ($, %, @) and abbreviations (Dr., AI, e.g.) into their full spoken forms.
+
+Grammatical Declension: Ensure all verbalized numbers are grammatically declined correctly according to the context of the sentence in the Target Language.
+
+3. Intelligent Isochronic Timing (Dynamic Length Control)
+Calculate Linguistic Density: - From Compact to Long (e.g., EN -> PL/DE): Polish/German can be 20% longer. You MUST condense the translation using shorter synonyms and concise phrasing to ensure it fits the original time slot.
+
+From Long to Compact (e.g., PL -> EN): English is often shorter. You MUST naturally expand or pad the text (using descriptive adjectives or filler words like "well," "actually") so the speech covers approximately 90% of the available time.
+
+The Speed-Up Rule: The goal is to avoid both "chipmunk" speed (too much text) and long awkward silences (too little text). The voice must sound natural and steady.
+
+4. Dubbing Aesthetics
+Write for the Ear: Use spoken-word syntax. Avoid robotic or literal translations that sound stiff when read aloud.
+
+Sync-Ready Phrasing: If possible, match the "energy" of the original segment. If a segment is a short exclamation, keep the translation short.
+
+5. Technical Requirements
+Return ONLY a valid JSON array of objects.
+
+Keep the EXACT "start" and "end" timestamps from the input.
+
+Use UTF-8 encoding for all special characters.
+
+Output should be raw JSON code, no conversational filler or markdown markers."""
+
+def clean_and_extract_json(response_text: str) -> str:
     """
-    Używa regex, aby wyodrębnić tylko tablicę JSON z odpowiedzi, usuwając markdown i inne "chatter".
+    Solidny "cleaner", który usuwa bloki Markdown (` ```json...``` `) i inne "ozdobniki" AI.
     """
     match = re.search(r'```json\s*(\[.*\])\s*```', response_text, re.DOTALL)
     if match:
@@ -72,12 +96,7 @@ def translate_json_files():
         logging.error("Klient Gemini nie jest dostępny. Zakończono działanie.")
         return
 
-    # Skanuje pliki .json, ignorując te już przetłumaczone (_translated.json)
-    # i ignorując też pliki z poprzednich prób (_PL.json)
-    files_to_translate = [
-        f for f in glob.glob(os.path.join(DOWNLOADS_DIR, "*.json"))
-        if not f.endswith('_translated.json') and not f.endswith('_PL.json')
-    ]
+    files_to_translate = [f for f in glob.glob(os.path.join(DOWNLOADS_DIR, "*.json")) if not f.endswith('_PL.json')] 
     
     if not files_to_translate:
         logging.warning(f"Nie znaleziono plików JSON do tłumaczenia w '{DOWNLOADS_DIR}'.")
@@ -98,23 +117,16 @@ def translate_json_files():
 
             logging.info("Otrzymano odpowiedź od Gemini API. Uruchamianie cleanera...")
             
-            cleaned_json_str = clean_json(response.text)
+            cleaned_json_str = clean_and_extract_json(response.text)
             translated_data = json.loads(cleaned_json_str)
 
-            # Zapisywanie z nowym przyrostkiem '_translated.json'
-            base_filename = os.path.splitext(os.path.basename(file_path))[0]
-            output_path = os.path.join(DOWNLOADS_DIR, f"{base_filename}_translated.json")
+            output_path = file_path.replace(".json", "_PL.json")
 
             with open(output_path, 'w', encoding='utf-8') as f:
                 json.dump(translated_data, f, indent=4, ensure_ascii=False)
 
-            logging.info(f"Dubbing-ready tłumaczenie zapisano pomyślnie do: {os.path.basename(output_path)}")
+            logging.info(f"Uniwersalny skrypt dubbingowy zapisano pomyślnie do: {os.path.basename(output_path)}")
 
-        except google_exceptions.NotFound as e:
-            logging.error(f"BŁĄD KRYTYCZNY: Model '{MODEL_ID}' nie został znaleziony lub nie masz do niego dostępu.")
-            logging.error("Powyżej znajduje się lista dostępnych modeli. Sprawdź, czy używasz poprawnej nazwy.")
-            logging.error(f"Szczegóły błędu: {e}")
-            break
         except Exception as e:
             logging.error(f"Nie udało się przetworzyć pliku {file_path}: {e}", exc_info=True)
 
