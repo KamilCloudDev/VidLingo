@@ -1,11 +1,9 @@
-version: '3.8'
-
 services:
   yt-downloader:
     build:
       context: ./services/yt-downloader
     volumes:
-      - media_data:/app/downloads
+      - ./downloads:/app/downloads
     # This service is intended for one-off runs, e.g.:
     # docker-compose run yt-downloader "YOUTUBE_URL_HERE"
 
@@ -13,11 +11,6 @@ services:
     build:
       context: ./services/transcriber
     volumes:
-      - media_data:/app/downloads
+      - ./downloads:/app/downloads
     # This service processes files present in the volume, e.g.:
     # docker-compose run transcriber
-
-volumes:
-  media_data:
-    # This defines a named volume managed by Docker.
-    # It persists data between container runs.
