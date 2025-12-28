@@ -31,3 +31,10 @@ services:
       - ./downloads:/app/downloads
       - ./temp:/app/temp # Katalog tymczasowy dla plików audio
     # entrypoint: ["python", "/app/tts.py"] # Niepotrzebne, CMD w Dockerfile wystarczy
+
+  transcriber-tests:
+    build:
+      context: ./services/transcriber
+    volumes:
+      - ./tests/transcriber:/app/tests/transcriber
+    command: python -m unittest /app/tests/transcriber/test_transcriber.py
