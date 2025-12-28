@@ -21,14 +21,13 @@ services:
     volumes:
       - ./downloads:/app/downloads
 
-  dubber:
+  tts: # Nowy, kompletny serwis TTS przejmuje rolę dubbera
     build:
-      context: ./services/dubber
+      context: ./services/tts
     environment:
       - PYTHONUNBUFFERED=1
-      - COQUI_TOS_AGREED=1
+      - TARGET_LANGUAGE=${TARGET_LANGUAGE:-Polish} # Używa zmiennej z hosta lub domyślnie 'Polish'
     volumes:
       - ./downloads:/app/downloads
-      - /dev/shm:/dev/shm
-      - ./tts_models:/root/.local/share/tts
-    entrypoint: ["python3", "/app/dubber.py"]
+      - ./temp:/app/temp # Katalog tymczasowy dla plików audio
+    # entrypoint: ["python", "/app/tts.py"] # Niepotrzebne, CMD w Dockerfile wystarczy

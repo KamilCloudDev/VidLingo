@@ -32,10 +32,10 @@ The entire VidLingo suite is managed via Docker Compose, allowing for easy, modu
     # docker-compose run translator
     ```
 
-5.  **Run the Dubber (Module 4)**:
-    Generates a new audio track from the translated text, clones the original speaker's voice, mixes it with the original background audio, and remuxes it into the final video.
+5.  **Run the TTS (Module 4)**:
+    Generates a new audio track from the translated text, using Microsoft Edge's text-to-speech engine, mixes it with the original background audio, and remuxes it into a final video.
     ```bash
-    docker-compose run dubber
+    docker-compose run tts
     ```
 
 ---
@@ -56,14 +56,14 @@ This project is built with a modular, service-oriented architecture. Each servic
 -   **Status**: ✅ Complete
 -   **Description**: A cloud-native translation service using Google's Gemini API for dubbing-ready text. More details in its [local README](./services/translator/README.md).
 
-### Module 4: AI Dubbing Service (`/services/dubber`)
+### Module 4: AI TTS Service (`/services/tts`)
 -   **Status**: ✅ Complete
--   **Description**: The final module, responsible for synthesizing dubbed audio using voice cloning (Coqui XTTSv2) and mixing it into the final video. More details in its [local README](./services/dubber/README.md).
+-   **Description**: The final module, responsible for synthesizing dubbed audio using Microsoft Edge's TTS engine and mixing it into the final video. More details in its [local README](./services/tts/README.md).
 
 ## 🛠️ Tech Stack
 
 -   **Backend**: Python 3.11
--   **AI / ML**: `faster-whisper`, Google Gemini API, Coqui XTTSv2
+-   **AI / ML**: `faster-whisper`, Google Gemini API, Microsoft Edge TTS
 -   **Containerization**: Docker, Docker Compose
 -   **Core Libraries**: `yt-dlp`, `pydub`, FFmpeg
 -   **Automation**: Git

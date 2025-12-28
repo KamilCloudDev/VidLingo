@@ -72,3 +72,6 @@ docker-compose.override.yml
 
 # AI Models
 tts_models/
+
+# Temp files
+temp/
