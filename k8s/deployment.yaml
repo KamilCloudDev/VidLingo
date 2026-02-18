@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vidlingo-test
+  labels:
+    app: vidlingo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vidlingo
+  template:
+    metadata:
+      labels:
+        app: vidlingo
+    spec:
+      containers:
+      - name: web-test
+        image: nginx:alpine
+        ports:
+        - containerPort: 80
